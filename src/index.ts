@@ -270,7 +270,13 @@ export default class CryptomePay {
    * Create a new payment order
    */
   async createPayment(params: CreatePaymentParams): Promise<PaymentResponse> {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = this.generateNonce();
+
     const signParams: Record<string, string> = {
+      api_key: this.apiKey,
+      timestamp,
+      nonce,
       order_id: params.orderId,
       amount: params.amount.toFixed(2),
       notify_url: params.notifyUrl,
@@ -286,6 +292,9 @@ export default class CryptomePay {
     const signature = this.generateSignature(signParams);
 
     const body: Record<string, unknown> = {
+      api_key: this.apiKey,
+      timestamp,
+      nonce,
       order_id: params.orderId,
       amount: params.amount,
       notify_url: params.notifyUrl,
@@ -397,7 +406,7 @@ export default class CryptomePay {
   }
 
   /**
-   * Generate MD5 signature
+   * Generate HMAC-SHA256 signature
    */
   private generateSignature(params: Record<string, string>): string {
     const filtered = Object.entries(params)
@@ -408,9 +417,16 @@ export default class CryptomePay {
       .map(([key, value]) => `${key}=${value}`)
       .join('&');
 
-    return crypto.createHash('md5')
-      .update(queryString + this.apiSecret)
+    return crypto.createHmac('sha256', this.apiSecret)
+      .update(queryString)
       .digest('hex');
+  }
+
+  /**
+   * Generate random nonce
+   */
+  private generateNonce(): string {
+    return crypto.randomBytes(16).toString('hex');
   }
 
   /**
