@@ -177,10 +177,19 @@ export interface WebhookPayload {
   actualAmount: number;
   token: string;
   chainType: string;
+  chainName?: string;
   blockTransactionId: string;
   status: PaymentStatus;
+  timestamp: number;
   signature: string;
+  signatureVersion: number;
 }
+
+/** Signature version constants */
+export const SignatureVersion = {
+  MD5: 1,       // Legacy (deprecated)
+  SHA256: 2,    // HMAC-SHA256 (recommended)
+} as const;
 
 /** Merchant data */
 export interface MerchantData {
@@ -316,7 +325,7 @@ export default class CryptomePay {
    * Query payment by trade_id
    */
   async queryPaymentByTradeId(tradeId: string): Promise<OrderResponse> {
-    const response = await this.request<any>('GET', `/order/query?trade_id=${encodeURIComponent(tradeId)}`);
+    const response = await this.request<any>('GET', `/merchant/order/query?trade_id=${encodeURIComponent(tradeId)}`);
     return this.transformOrderResponse(response);
   }
 
@@ -324,7 +333,7 @@ export default class CryptomePay {
    * Query payment by order_id
    */
   async queryPaymentByOrderId(orderId: string): Promise<OrderResponse> {
-    const response = await this.request<any>('GET', `/order/query?order_id=${encodeURIComponent(orderId)}`);
+    const response = await this.request<any>('GET', `/merchant/order/query?order_id=${encodeURIComponent(orderId)}`);
     return this.transformOrderResponse(response);
   }
 
@@ -357,7 +366,7 @@ export default class CryptomePay {
   }
 
   /**
-   * Verify webhook signature
+   * Verify webhook signature (supports both SHA256 and legacy MD5)
    */
   verifyWebhookSignature(payload: WebhookPayload): boolean {
     const params: Record<string, string> = {
@@ -369,31 +378,52 @@ export default class CryptomePay {
       chain_type: payload.chainType,
       block_transaction_id: payload.blockTransactionId,
       status: String(payload.status),
+      timestamp: String(payload.timestamp),
     };
 
-    const expected = this.generateSignature(params);
+    if (payload.chainName) {
+      params.chain_name = payload.chainName;
+    }
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expected),
-      Buffer.from(payload.signature)
-    );
+    const signatureVersion = payload.signatureVersion || 1;
+    const expected = this.calculateSignature(params, signatureVersion);
+
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(expected),
+        Buffer.from(payload.signature)
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Verify webhook signature from raw object (snake_case keys)
+   * Automatically handles signature_version for both SHA256 and MD5
    */
   verifyWebhookSignatureRaw(payload: Record<string, unknown>): boolean {
     const signature = payload.signature as string;
     if (!signature) return false;
 
+    const signatureVersion = Number(payload.signature_version) || 1;
+
     const params: Record<string, string> = {};
     for (const [key, value] of Object.entries(payload)) {
-      if (key !== 'signature' && value !== '' && value !== null) {
+      if (key === 'signature' || key === 'signature_version') continue;
+      if (value === '' || value === null || value === undefined) continue;
+
+      // Format numbers correctly
+      if (key === 'amount' && typeof value === 'number') {
+        params[key] = value.toFixed(2);
+      } else if (key === 'actual_amount' && typeof value === 'number') {
+        params[key] = value.toFixed(4);
+      } else {
         params[key] = String(value);
       }
     }
 
-    const expected = this.generateSignature(params);
+    const expected = this.calculateSignature(params, signatureVersion);
 
     try {
       return crypto.timingSafeEqual(
@@ -402,6 +432,31 @@ export default class CryptomePay {
       );
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Calculate signature based on version
+   */
+  private calculateSignature(params: Record<string, string>, version: number): string {
+    const filtered = Object.entries(params)
+      .filter(([key, value]) => key !== 'signature' && key !== 'signature_version' && value !== '' && value !== null)
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    const queryString = filtered
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+
+    if (version === 2) {
+      // HMAC-SHA256 (recommended)
+      return crypto.createHmac('sha256', this.apiSecret)
+        .update(queryString)
+        .digest('hex');
+    } else {
+      // Legacy MD5 (deprecated)
+      return crypto.createHash('md5')
+        .update(queryString + this.apiSecret)
+        .digest('hex');
     }
   }
 
@@ -554,7 +609,7 @@ export default class CryptomePay {
       data: response.data ? {
         merchantId: response.data.merchant_id,
         merchantCode: response.data.merchant_code,
-        name: response.data.name,
+        name: response.data.merchant_name || response.data.name,
         email: response.data.email,
         status: response.data.status,
         kycStatus: response.data.kyc_status,
