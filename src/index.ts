@@ -182,14 +182,7 @@ export interface WebhookPayload {
   status: PaymentStatus;
   timestamp: number;
   signature: string;
-  signatureVersion: number;
 }
-
-/** Signature version constants */
-export const SignatureVersion = {
-  MD5: 1,       // Legacy (deprecated)
-  SHA256: 2,    // HMAC-SHA256 (recommended)
-} as const;
 
 /** Merchant data */
 export interface MerchantData {
@@ -366,14 +359,14 @@ export default class CryptomePay {
   }
 
   /**
-   * Verify webhook signature (supports both SHA256 and legacy MD5)
+   * Verify webhook signature (HMAC-SHA256)
    */
   verifyWebhookSignature(payload: WebhookPayload): boolean {
     const params: Record<string, string> = {
       trade_id: payload.tradeId,
       order_id: payload.orderId,
-      amount: payload.amount.toFixed(2),
-      actual_amount: payload.actualAmount.toFixed(4),
+      amount: typeof payload.amount === 'number' ? payload.amount.toFixed(2) : String(payload.amount),
+      actual_amount: typeof payload.actualAmount === 'number' ? payload.actualAmount.toFixed(4) : String(payload.actualAmount),
       token: payload.token,
       chain_type: payload.chainType,
       block_transaction_id: payload.blockTransactionId,
@@ -385,8 +378,7 @@ export default class CryptomePay {
       params.chain_name = payload.chainName;
     }
 
-    const signatureVersion = payload.signatureVersion || 1;
-    const expected = this.calculateSignature(params, signatureVersion);
+    const expected = this.calculateSignature(params);
 
     try {
       return crypto.timingSafeEqual(
@@ -400,17 +392,14 @@ export default class CryptomePay {
 
   /**
    * Verify webhook signature from raw object (snake_case keys)
-   * Automatically handles signature_version for both SHA256 and MD5
    */
   verifyWebhookSignatureRaw(payload: Record<string, unknown>): boolean {
     const signature = payload.signature as string;
     if (!signature) return false;
 
-    const signatureVersion = Number(payload.signature_version) || 1;
-
     const params: Record<string, string> = {};
     for (const [key, value] of Object.entries(payload)) {
-      if (key === 'signature' || key === 'signature_version') continue;
+      if (key === 'signature') continue;
       if (value === '' || value === null || value === undefined) continue;
 
       // Format numbers correctly
@@ -423,7 +412,7 @@ export default class CryptomePay {
       }
     }
 
-    const expected = this.calculateSignature(params, signatureVersion);
+    const expected = this.calculateSignature(params);
 
     try {
       return crypto.timingSafeEqual(
@@ -436,28 +425,20 @@ export default class CryptomePay {
   }
 
   /**
-   * Calculate signature based on version
+   * Calculate HMAC-SHA256 signature
    */
-  private calculateSignature(params: Record<string, string>, version: number): string {
+  private calculateSignature(params: Record<string, string>): string {
     const filtered = Object.entries(params)
-      .filter(([key, value]) => key !== 'signature' && key !== 'signature_version' && value !== '' && value !== null)
+      .filter(([key, value]) => key !== 'signature' && value !== '' && value !== null)
       .sort(([a], [b]) => a.localeCompare(b));
 
     const queryString = filtered
       .map(([key, value]) => `${key}=${value}`)
       .join('&');
 
-    if (version === 2) {
-      // HMAC-SHA256 (recommended)
-      return crypto.createHmac('sha256', this.apiSecret)
-        .update(queryString)
-        .digest('hex');
-    } else {
-      // Legacy MD5 (deprecated)
-      return crypto.createHash('md5')
-        .update(queryString + this.apiSecret)
-        .digest('hex');
-    }
+    return crypto.createHmac('sha256', this.apiSecret)
+      .update(queryString)
+      .digest('hex');
   }
 
   /**
