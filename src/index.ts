@@ -30,10 +30,8 @@ import * as http from 'http';
 /** SDK Version */
 export const VERSION = '1.0.0';
 
-/** Environment URLs */
+/** API Base URL */
 export const PRODUCTION_URL = 'https://api.cryptomepay.com/api/v1';
-export const SANDBOX_URL = 'https://sandbox.cryptomepay.com/api/v1';
-export const STAGING_URL = 'https://staging.cryptomepay.com/api/v1';
 
 /** Supported chain types */
 export enum ChainType {
@@ -254,18 +252,6 @@ export default class CryptomePay {
     this.apiSecret = config.apiSecret;
     this.baseUrl = (config.baseUrl || PRODUCTION_URL).replace(/\/$/, '');
     this.timeout = config.timeout || 30000;
-  }
-
-  /** Switch to sandbox environment */
-  useSandbox(): this {
-    this.baseUrl = SANDBOX_URL;
-    return this;
-  }
-
-  /** Switch to production environment */
-  useProduction(): this {
-    this.baseUrl = PRODUCTION_URL;
-    return this;
   }
 
   /**
