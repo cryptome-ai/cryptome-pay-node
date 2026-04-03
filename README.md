@@ -38,25 +38,14 @@ if (payment.statusCode === 200) {
 ## Configuration
 
 ```typescript
-import CryptomePay, { SANDBOX_URL } from 'cryptomepay';
-
-// Production (default)
 const client = new CryptomePay({
   apiKey: 'sk_live_xxx',
   apiSecret: 'secret',
+  timeout: 60000, // Optional: request timeout in ms (default: 30000)
 });
-
-// Sandbox
-const sandboxClient = new CryptomePay({
-  apiKey: 'sk_sandbox_xxx',
-  apiSecret: 'secret',
-  baseUrl: SANDBOX_URL,
-});
-
-// Or switch environments
-client.useSandbox();
-client.useProduction();
 ```
+
+> **Sandbox Testing:** Use the Merchant Dashboard's built-in Sandbox page to test payment flows without real blockchain transactions.
 
 ## API Reference
 
